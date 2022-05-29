@@ -70,60 +70,42 @@ func (w *WalletCommanderController) processTransactionResult(commandId string, t
 	}
 }
 
-func (w *WalletCommanderController) getPrivateKey(commandId, address string) (string, error) {
-	key, err := w.vault.GetPrivateKey(address)
-
-	if err != nil {
-		w.store.UpdateWalletCommandTransactionError(commandId, api.CommandStatusBadConfig, err.Error())
-		log.Logger().Errorf("Could not find private key for wallet %s while executing command id %s.",
-			address,
-			commandId,
-		)
-	}
-
-	return key, err
-}
-
 func (w *WalletCommanderController) claimSlp(commandId string, payload *api.ClaimSlpPayload) {
-	if key, err := w.getPrivateKey(commandId, payload.AddressToClaim); err == nil {
-		tx, err := w.client.ClaimSlp(context.Background(), utils.RoninAddrToEthAddr(payload.AddressToClaim), key)
+	tx, err := w.client.ClaimSlp(context.Background(), utils.RoninAddrToEthAddr(payload.AddressToClaim))
 
-		if err == nil {
-			logWalletCommanderSuccess(api.OperationClaimSLP, commandId, tx)
-		} else {
-			logWalletCommanderError(api.OperationClaimSLP, commandId, err)
-		}
-
-		w.processTransactionResult(commandId, tx, err)
+	if err == nil {
+		logWalletCommanderSuccess(api.OperationClaimSLP, commandId, tx)
+	} else {
+		logWalletCommanderError(api.OperationClaimSLP, commandId, err)
 	}
+
+	w.processTransactionResult(commandId, tx, err)
+	
 }
 
 func (w *WalletCommanderController) transferSlp(commandId string, payload *api.TransferSlpPayload) {
-	if key, err := w.getPrivateKey(commandId, payload.From); err == nil {
-		tx, err := w.client.TransferSlp(context.Background(), key, utils.RoninAddrToEthAddr(payload.To), payload.Amount)
+	tx, err := w.client.TransferSlp(context.Background(), utils.RoninAddrToEthAddr(payload.From), utils.RoninAddrToEthAddr(payload.To), payload.Amount)
 
-		if err == nil {
-			logWalletCommanderSuccess(api.OperationTransferSLP, commandId, tx)
-		} else {
-			logWalletCommanderError(api.OperationTransferSLP, commandId, err)
-		}
-
-		w.processTransactionResult(commandId, tx, err)
+	if err == nil {
+		logWalletCommanderSuccess(api.OperationTransferSLP, commandId, tx)
+	} else {
+		logWalletCommanderError(api.OperationTransferSLP, commandId, err)
 	}
+
+	w.processTransactionResult(commandId, tx, err)
+	
 }
 
 func (w *WalletCommanderController) transferAxie(commandId string, payload *api.TransferAxiePayload) {
-	if key, err := w.getPrivateKey(commandId, payload.From); err == nil {
-		tx, err := w.client.TransferAxie(context.Background(), key, utils.RoninAddrToEthAddr(payload.To), payload.AxieId)
+	tx, err := w.client.TransferAxie(context.Background(), utils.RoninAddrToEthAddr(payload.From), utils.RoninAddrToEthAddr(payload.To), payload.AxieId)
 
-		if err == nil {
-			logWalletCommanderSuccess(api.OperationTransferAxie, commandId, tx)
-		} else {
-			logWalletCommanderError(api.OperationTransferAxie, commandId, err)
-		}
-
-		w.processTransactionResult(commandId, tx, err)
+	if err == nil {
+		logWalletCommanderSuccess(api.OperationTransferAxie, commandId, tx)
+	} else {
+		logWalletCommanderError(api.OperationTransferAxie, commandId, err)
 	}
+
+	w.processTransactionResult(commandId, tx, err)
 }
 
 func logWalletCommanderSuccess(operation api.WalletCommanderOperation, commandId, tx string) {

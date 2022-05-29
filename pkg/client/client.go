@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/earn-alliance/wallet-commander-cli/internal/walletservice"
 	"github.com/earn-alliance/wallet-commander-cli/pkg/abi"
 	"github.com/earn-alliance/wallet-commander-cli/pkg/constants"
 	"github.com/earn-alliance/wallet-commander-cli/pkg/store"
@@ -12,9 +13,7 @@ import (
 	"github.com/earn-alliance/wallet-commander-cli/pkg/utils"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/rpc"
@@ -42,7 +41,7 @@ type Client interface {
 	GetTransactionReceipt(ctx context.Context, txHash string) (*types.Receipt, error)
 	GetRoninWalletBalance(ctx context.Context, tokenTypeAddress, address string) (float64, error)
 	GetClaimableAmount(ctx context.Context, address string) (*ClaimableResponse, error)
-	ClaimSlp(ctx context.Context, address, privateKeyStr string) (string, error)
+	ClaimSlp(ctx context.Context, address string) (string, error)
 	GetWalletTransactionHistory(address string) (*pkgTypes.WalletTransactionHistory, error)
 }
 
@@ -128,7 +127,6 @@ func New() (Client, error) {
 	}
 
 	rpcClient, err := createRpcClient(constants.RONIN_PROVIDER_RPC_URI)
-
 	if err != nil {
 		return nil, err
 	}
@@ -163,25 +161,21 @@ func New() (Client, error) {
 	}, nil
 }
 
-func createTransactOps(ctx context.Context, client *ethclient.Client, privateKeyStr string) (*bind.TransactOpts, error) {
-	privateKey, err := crypto.ToECDSA(common.FromHex(privateKeyStr))
+func createTransactOps(ctx context.Context, client *ethclient.Client, from string) (*bind.TransactOpts, error) {
 
-	if err != nil {
-		return nil, err
-	}
-
-	fromAddress := crypto.PubkeyToAddress(privateKey.PublicKey)
+	fromAddress := common.HexToAddress(from)
 	nonce, err := client.NonceAt(ctx, fromAddress, nil)
 
 	if err != nil {
 		return nil, err
 	}
 
-	ops, err := bind.NewKeyedTransactorWithChainID(privateKey, constants.RONIN_CHAIN_ID)
+	var ops *bind.TransactOpts
 
 	if err != nil {
 		return nil, err
 	}
+
 	rand.Seed(time.Now().UnixNano())
 	gasPrice := rand.Intn(198888-165313+1) + 165313
 
@@ -191,20 +185,31 @@ func createTransactOps(ctx context.Context, client *ethclient.Client, privateKey
 	ops.Context = ctx
 
 	ops.Signer = func(address common.Address, transaction *types.Transaction) (*types.Transaction, error) {
-		return types.SignTx(transaction, types.NewEIP155Signer(constants.RONIN_CHAIN_ID), privateKey)
+		walletService, err := walletservice.New()
+		// get the same item
+		if err != nil {
+			return nil, err
+		}
+		tx, err := walletService.SendTransaction(address, transaction)
+		if err != nil {
+			return nil, err
+		}
+		return tx, nil
 	}
+
+	ops.NoSend = true
 
 	return ops, nil
 }
 
-func (c *AxieClient) TransferSlp(ctx context.Context, privateKey, to string, amount int) (string, error) {
-	ops, err := createTransactOps(ctx, c.freeEthClient, privateKey)
+func (c *AxieClient) TransferSlp(ctx context.Context, from string, to string, amount int) (string, error) {
+	ops, err := createTransactOps(ctx, c.freeEthClient, from)
 
 	if err != nil {
 		return "", err
 	}
 
-	tx, err := c.slpClient.Transfer(ops, common.HexToAddress(to), big.NewInt(int64(amount)))
+	tx, err := c.slpClient.SlpTransactor.Transfer(ops, common.HexToAddress(to), big.NewInt(int64(amount)))
 
 	if err != nil {
 		return "", err
@@ -213,8 +218,8 @@ func (c *AxieClient) TransferSlp(ctx context.Context, privateKey, to string, amo
 	return tx.Hash().String(), nil
 }
 
-func (c *AxieClient) TransferAxie(ctx context.Context, privateKey, to string, axieId int) (string, error) {
-	ops, err := createTransactOps(ctx, c.freeEthClient, privateKey)
+func (c *AxieClient) TransferAxie(ctx context.Context, from string, to string, axieId int) (string, error) {
+	ops, err := createTransactOps(ctx, c.freeEthClient, from)
 
 	if err != nil {
 		return "", err
@@ -230,8 +235,8 @@ func (c *AxieClient) TransferAxie(ctx context.Context, privateKey, to string, ax
 }
 
 // TODO: Test
-func (c *AxieClient) BreedAxie(ctx context.Context, privateKey string, dadAxieId, momAxieId int) (string, error) {
-	ops, err := createTransactOps(ctx, c.freeEthClient, privateKey)
+func (c *AxieClient) BreedAxie(ctx context.Context, from string, dadAxieId, momAxieId int) (string, error) {
+	ops, err := createTransactOps(ctx, c.freeEthClient, from)
 
 	if err != nil {
 		return "", err
@@ -354,14 +359,14 @@ type GraphqlRequest struct {
 	Query         string                 `json:"query"`
 }
 
-func (c *AxieClient) getClaimPayload(ctx context.Context, address, privateKeyStr string) (*ClaimableResponse, error) {
+func (c *AxieClient) getClaimPayload(ctx context.Context, address string) (*ClaimableResponse, error) {
 	randomMsg, err := createRandomMessage()
 
 	if err != nil {
 		return nil, err
 	}
 
-	token, err := c.getJwtAccessToken(randomMsg, address, privateKeyStr)
+	token, err := c.getJwtAccessToken(randomMsg, address)
 
 	if err != nil {
 		return nil, err
@@ -391,16 +396,15 @@ func (c *AxieClient) getClaimPayload(ctx context.Context, address, privateKeyStr
 	return &resp, nil
 }
 
-func (c *AxieClient) ClaimSlp(
-	ctx context.Context, address, privateKeyStr string) (string, error) {
+func (c *AxieClient) ClaimSlp(ctx context.Context, address string) (string, error) {
 
-	ops, err := createTransactOps(ctx, c.freeEthClient, privateKeyStr)
+	ops, err := createTransactOps(ctx, c.freeEthClient, address)
 
 	if err != nil {
 		return "", err
 	}
 
-	claimResponse, err := c.getClaimPayload(ctx, address, privateKeyStr)
+	claimResponse, err := c.getClaimPayload(ctx, address)
 
 	if err != nil {
 		return "", err
@@ -427,7 +431,7 @@ func (c *AxieClient) ClaimSlp(
 	return tx.Hash().String(), nil
 }
 
-func (c *AxieClient) getJwtAccessToken(randomMsg, address, privateKeyStr string) (string, error) {
+func (c *AxieClient) getJwtAccessToken(randomMsg, address string) (string, error) {
 	if cachedToken := c.jwtStore.GetValidJwt(address); cachedToken != "" {
 		log.Printf("Returning cached JWT token for usage")
 		return cachedToken, nil
@@ -441,9 +445,10 @@ func (c *AxieClient) getJwtAccessToken(randomMsg, address, privateKeyStr string)
 		} `json:"data"`
 	}
 
-	privateKey := crypto.ToECDSAUnsafe(common.FromHex(privateKeyStr))
 	hash := utils.NodejsHashData([]byte(randomMsg))
-	signedMsgBytes, err := crypto.Sign(hash, privateKey)
+
+	walletService, _ := walletservice.New()
+	signature, err := walletService.SignMessage(address, string(hash))
 
 	if err != nil {
 		return "", errors.New(fmt.Sprintf("Could not sign message with err %v", err))
@@ -456,7 +461,7 @@ func (c *AxieClient) getJwtAccessToken(randomMsg, address, privateKeyStr string)
 				"mainnet":   "ronin",
 				"owner":     address,
 				"message":   randomMsg,
-				"signature": hexutil.Encode(signedMsgBytes),
+				"signature": signature,
 			},
 		},
 		Query: `mutation CreateAccessTokenWithSignature($input: SignatureInput!) {
