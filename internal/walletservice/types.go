@@ -6,7 +6,7 @@ type WalletServiceGetTransactionRequest struct {
 	FromID              string              `json:"from_id"`    // Change name in the database
 	TargetID            string              `json:"target_id"`    // Change name in the database
 	Payload             struct {
-		txId string `json:"transaction_id"`
+		TxID string `json:"transaction_id"`
 	} `json:"payload"`
 }
 
