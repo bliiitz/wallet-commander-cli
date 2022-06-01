@@ -21,15 +21,15 @@ type WalletCommanderController struct {
 	store  store.Store
 }
 
-func New(vault vault.Vault, store store.Store, client client.Client) (Controller, error) {
+func New(store store.Store, client client.Client) (Controller, error) {
 	return &WalletCommanderController{
 		client: client,
-		vault:  vault,
 		store:  store,
 	}, nil
 }
 
 func (w *WalletCommanderController) ProcessWalletCommand(command query.WalletCommanderCommand) {
+	
 	commandIdStr := command.Id.(string)
 	switch string(command.Operation) {
 	case string(api.OperationClaimSLP):

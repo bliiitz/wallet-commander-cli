@@ -6,7 +6,6 @@ import (
 	"github.com/earn-alliance/wallet-commander-cli/internal/server"
 	"github.com/earn-alliance/wallet-commander-cli/internal/store"
 	"github.com/earn-alliance/wallet-commander-cli/internal/types"
-	"github.com/earn-alliance/wallet-commander-cli/internal/vault"
 	"github.com/earn-alliance/wallet-commander-cli/pkg/client"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
@@ -72,7 +71,6 @@ func startCommand() *cobra.Command {
 		"Valid values (SUCCESS,FAILED_TRANSACTION,INTERNAL_ERROR)")
 
 	startCmd.PersistentFlags().String("earn-alliance-endpoint", types.EarnManagementServerEndpoint, "Earn Management server endpoint")
-	startCmd.PersistentFlags().String("secrets-file", types.DefaultSecretsFileName, "Secrets file with array of private keys")
 
 	startCmd.PersistentFlags().String("client-id", "", "Earn Management account Client Id (required)")
 	startCmd.MarkPersistentFlagRequired("client-id")
@@ -82,7 +80,6 @@ func startCommand() *cobra.Command {
 
 type StartFlags struct {
 	EarnAllianceEndpoint string
-	SecretsFile          string
 	DevMode              types.DevMockMode
 	ClientId             string
 }
@@ -103,11 +100,6 @@ func setupLoggerFlags(cmd *cobra.Command) {
 }
 
 func getStartFlags(cmd *cobra.Command) StartFlags {
-	secretsFile, err := cmd.Flags().GetString("secrets-file")
-
-	if err != nil {
-		log.Logger().Panicf("Internal Error: Secrets File flag not setup correctly %v", err)
-	}
 
 	devModeStr, err := cmd.Flags().GetString("dev-mode")
 
@@ -129,7 +121,6 @@ func getStartFlags(cmd *cobra.Command) StartFlags {
 
 	return StartFlags{
 		EarnAllianceEndpoint: earnAllianceEndpoint,
-		SecretsFile:          secretsFile,
 		DevMode:              types.DevMockMode(devModeStr),
 		ClientId:             clientId,
 	}
@@ -144,12 +135,6 @@ func startEarnAllianceCommander() *cobra.Command {
 			setupLoggerFlags(cmd)
 			startFlags := getStartFlags(cmd)
 
-			vault, err := vault.New(startFlags.SecretsFile)
-
-			if err != nil {
-				log.Logger().Panicf("Error occured starting earn alliance commander %v", err)
-			}
-
 			client, err := client.New()
 
 			if err != nil {
@@ -159,7 +144,7 @@ func startEarnAllianceCommander() *cobra.Command {
 			var c controller.Controller
 
 			if startFlags.DevMode == "" {
-				c, err = controller.New(vault, store.New(startFlags.EarnAllianceEndpoint), client)
+				c, err = controller.New(store.New(startFlags.EarnAllianceEndpoint), client)
 				if err != nil {
 					log.Logger().Panicf("Could not start earn alliance commander with err %v", err)
 				}
